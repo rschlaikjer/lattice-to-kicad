@@ -25,3 +25,7 @@ The script will print symbol data on standard out.
 The script does NOT handle updates to existing libraries / generation of
 library header. See the makefile for the minimal extra calls necessary to make a
 library readable by KiCad.
+
+## Example Generated Library
+
+![Generated Library](/img/generated_library.png?raw=true "Generated Library")
