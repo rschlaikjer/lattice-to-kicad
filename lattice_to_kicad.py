@@ -13,7 +13,7 @@ class LatticePad:
         self.pad_number = int(row[0])
         self.pin_ball = row[1]
         self.bank = row[2]
-        self.dual_function = row[3] == 'TRUE'
+        self.dual_function = row[3]
         self.differential = row[4]
         self.high_speed = row[5] == 'TRUE'
         self.dqs = row[6]
@@ -145,7 +145,10 @@ class KicadBank:
         self._bank_number = bank_number
         # Stack all the pads with the same net
         for pad in pads:
-            self._pads[pad.pin_ball].append(pad.ball_for_package(package))
+            signal_name = pad.pin_ball
+            if pad.dual_function != '-':
+                signal_name = '%s/%s' % (pad.pin_ball, pad.dual_function)
+            self._pads[signal_name].append(pad.ball_for_package(package))
 
     def emit(self):
         # Get the total number of unique signals in this bank
