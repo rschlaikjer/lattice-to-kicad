@@ -134,6 +134,8 @@ class KicadPart:
 
 class KicadBank:
 
+    PIN_Y_SPACING_MILS = 100
+
     def __init__(self, package, bank_number, pads):
         # Map of signal name to list of physical pads
         self._pads = defaultdict(list)
@@ -143,6 +145,9 @@ class KicadBank:
             self._pads[pad.pin_ball].append(pad.ball_for_package(package))
 
     def emit(self):
+        sys.stderr.write("Bank %s:\n" % self._bank_number)
+        sys.stderr.write("Signal names: %s\n" % self._pads.keys())
+
         # Get the total number of unique signals in this bank
         signal_names = self._pads.keys()
 
@@ -152,11 +157,35 @@ class KicadBank:
         other_signals = [
             name for name in signal_names
             if (name not in vcc_signals) and (name not in gnd_signals)]
-        print("Bank %s:" % self._bank_number)
-        print("Signal names: %s" % self._pads.keys())
-        print("Vcc signals: %s" % vcc_signals)
-        print("Gnd signals: %s" % gnd_signals)
-        print("Other signals: %s" % other_signals)
+
+        # Sort the names
+        vcc_signals.sort()
+        gnd_signals.sort()
+        other_signals.sort(key=functools.cmp_to_key(KicadBank.pin_compare))
+        sys.stderr.write("Vcc signals: %s\n" % vcc_signals)
+        sys.stderr.write("Gnd signals: %s\n" % gnd_signals)
+        sys.stderr.write("Other signals: %s\n" % other_signals)
+
+        # Work out the dimensions of this bank using the total signal name count
+        total_signal_count = len(signal_names)
+        offset_negative_y = int((total_signal_count) / 2)
+        pin_location_y = offset_negative_y * self.PIN_Y_SPACING_MILS
+        sys.stderr.write("Start offset: %s\n" % pin_location_y)
+
+        # Emit all the pin definitions
+        combined_ordered_signals = vcc_signals + other_signals + gnd_signals
+        for signal in combined_ordered_signals:
+            # Pins with the same signal after the first one should be
+            # rendered as 'invisible'
+            is_first_pin = True
+            for ball in self._pads[signal]:
+                print(kicad_make_pin(
+                    signal, ball, self._bank_number,
+                    200, pin_location_y,
+                    pin_visible=is_first_pin))
+                is_first_pin = False
+            pin_location_y -= self.PIN_Y_SPACING_MILS
+
 
     @staticmethod
     def pin_compare_wrapper(tup1, tup2):
@@ -216,19 +245,25 @@ def split_pads_by_bank(pads):
 
 def generate_kicad_part(part, csv_data, package):
     # Get all the pads for this part
-    print("Generating part for package '%s'" % package)
+    sys.stderr.write("Generating part for package '%s'\n" % package)
     pads = csv_data.get_signals_for_part(package)
 
     # First thing we're going to do is separate all of the pads in to I/O banks.
     # Pins that don't specify a bank (-) in the CSV will be grouped into a final
     # 'Power' bank.
     pads_per_bank = split_pads_by_bank(pads)
-    print("Total IO banks: %s" % len(pads_per_bank.keys()))
+    sys.stderr.write("Total IO banks: %s\n" % len(pads_per_bank.keys()))
 
-    # Wrap all the bank pads
+    # Create a part holder
     kicad_part = KicadPart(part, package)
-    for bank, pads in pads_per_bank.items():
-        kicad_part.add_bank(bank, pads)
+
+    # Wrap all the bank pads, renumbering from 0
+    bank_ids = list(pads_per_bank.keys())
+    bank_ids.sort()
+    bank_i = 1
+    for bank_id in bank_ids:
+        kicad_part.add_bank(bank_i, pads_per_bank[bank_id])
+        bank_i += 1
 
     # Emit the kicad symbol data
     kicad_part.emit()
@@ -243,13 +278,13 @@ def kicad_make_rect(start_x, start_y, end_x, end_y, unit):
         unit=unit,
     )
 
-def kicad_make_pin(signal, pad, unit, x, y, orientation='L'):
+def kicad_make_pin(signal, pad, unit, x, y, orientation='L', pin_visible=True):
     # X name pin X Y length orientation sizenum sizename part dmg type shape
     # I(nput), O(utout), B(idirectional), T(ristate),
     # P(assive), (open) C(ollector), (open) E(mitter), N(on-connected),
     # U(nspecified), or W for power input or w of power output.
     pintype = get_pin_type(signal)
-    return "X {signal} {pad} {x} {y} 200 {dir} 50 50 {unit} 1 {pintype}".format(
+    return "X {signal} {pad} {x} {y} 200 {dir} 50 50 {unit} 1 {pintype}{visible}".format(
         signal=signal,
         pad=pad,
         x=x,
@@ -257,6 +292,7 @@ def kicad_make_pin(signal, pad, unit, x, y, orientation='L'):
         dir=orientation,
         unit=unit,
         pintype=pintype,
+        visible=("" if pin_visible else " N"),
     )
 
 def get_pin_type(pinname):
@@ -367,7 +403,7 @@ def main():
     # Get the list of possible packages
     packages = csv_data.get_part_names()
     # Generate KiCad symbols for each package variant
-    for package in packages:
+    for package in ['CABGA256']: #packages:
         generate_kicad_part(part_name, csv_data, package)
 
 
