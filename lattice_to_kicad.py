@@ -325,7 +325,7 @@ def main():
     # Get the list of possible packages
     packages = csv_data.get_part_names()
     # Generate KiCad symbols for each package variant
-    for package in ['CABGA256']: #packages:
+    for package in packages:
         generate_kicad_part(part_name, csv_data, package)
 
 
