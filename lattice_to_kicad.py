@@ -111,6 +111,9 @@ class KicadPart:
     def emit(self):
         # Part header
         part_name = '%s-%s' % (self.part, self.package)
+        print('#')
+        print('# %s' % part_name)
+        print('#')
         print('DEF {partname} U 0 20 Y Y {units} L N'.format(
             partname=part_name,
             units=len(self.banks)
@@ -145,9 +148,6 @@ class KicadBank:
             self._pads[pad.pin_ball].append(pad.ball_for_package(package))
 
     def emit(self):
-        sys.stderr.write("Bank %s:\n" % self._bank_number)
-        sys.stderr.write("Signal names: %s\n" % self._pads.keys())
-
         # Get the total number of unique signals in this bank
         signal_names = self._pads.keys()
 
@@ -162,15 +162,12 @@ class KicadBank:
         vcc_signals.sort()
         gnd_signals.sort()
         other_signals.sort(key=functools.cmp_to_key(KicadBank.pin_compare))
-        sys.stderr.write("Vcc signals: %s\n" % vcc_signals)
-        sys.stderr.write("Gnd signals: %s\n" % gnd_signals)
-        sys.stderr.write("Other signals: %s\n" % other_signals)
 
         # Work out the dimensions of this bank using the total signal name count
         total_signal_count = len(signal_names)
         offset_negative_y = int((total_signal_count) / 2)
-        pin_location_y = offset_negative_y * self.PIN_Y_SPACING_MILS
-        sys.stderr.write("Start offset: %s\n" % pin_location_y)
+        start_pin_location_y = offset_negative_y * self.PIN_Y_SPACING_MILS
+        pin_location_y = start_pin_location_y
 
         # Emit all the pin definitions
         combined_ordered_signals = vcc_signals + other_signals + gnd_signals
@@ -186,6 +183,13 @@ class KicadBank:
                 is_first_pin = False
             pin_location_y -= self.PIN_Y_SPACING_MILS
 
+        # Emit a rectangle around all the names
+        max_signal_name_len = max([len(signal) for signal
+                                   in combined_ordered_signals])
+        print(kicad_make_rect(
+            -(max_signal_name_len * 50 + 50), start_pin_location_y + self.PIN_Y_SPACING_MILS,
+            0, pin_location_y,
+            self._bank_number))
 
     @staticmethod
     def pin_compare_wrapper(tup1, tup2):
@@ -313,88 +317,6 @@ def is_power_pin(pinname):
         return True
     if is_vcc_pin(pinname):
         return True
-
-def old_main():
-    if len(sys.argv) != 4:
-        sys.stderr.write("Usage: %s lattice_csv part package\n" % sys.argv[0])
-        return
-
-    # Load csv to list of lists
-    header, rows = csv_to_rows(sys.argv[1])
-
-    # Part name / package are next 2 args
-    part = sys.argv[2]
-    package = sys.argv[3].upper()
-
-    # Find which column has the right package
-    ballout_col = header.index(package)
-
-    signals_per_bank = defaultdict(list)
-
-    for row in rows:
-        signal = row[1]
-        # Ignore NC pins
-        if signal == 'NC':
-            continue
-
-        # If the pin doesn't exist in this package, ignore
-        ballout = row[ballout_col]
-        if ballout == '-':
-            continue
-
-        # Get the IO bank
-        bank = row[2]
-        if bank == '-':
-            if is_power_pin(signal):
-                bank = 'power'
-            else:
-                bank = 'misc'
-
-        signals_per_bank[bank].append((signal, ballout))
-
-    # Get number of banks
-    banks = sorted(signals_per_bank.keys())
-
-    # Now, for each bank, sort and print the pins
-    unit_number = 1
-    for bank in banks:
-        # Get the signals in this bank
-        signals = signals_per_bank[bank]
-        # Split into VCC / non VCC signals, since we want to put vcc at the top
-        vcc_signals = [(signal, ball) for (signal, ball) in signals
-                       if signal.startswith('VCC')]
-        non_vcc_signals = [(signal, ball) for (signal, ball) in signals
-                           if not signal.startswith('VCC')]
-        # Make them vaguely in order
-        vcc_signals.sort(key=lambda x: x[0])
-        non_vcc_signals.sort(key=functools.cmp_to_key(pin_compare_wrapper))
-        # Get the start Y value based on the number of pins, and being symmetric
-        # about the x axis
-        bank_y_start = int((((len(signals)-1) / 2) * 100))
-        bank_y_end = -int(((len(signals)-1) / 2) * 100)
-        if bank_y_start % 100 != 0:
-            delta = bank_y_start % 100
-            bank_y_start -= delta
-            bank_y_end -= delta
-        bank_y_step = -100
-        yval = bank_y_start
-        pins = []
-        for (signal, ballout) in vcc_signals:
-            pins.append(make_pin(signal, ballout, unit_number, 200, int(yval)))
-            yval += bank_y_step
-        for (signal, ballout) in non_vcc_signals:
-            pins.append(make_pin(signal, ballout, unit_number, 200, int(yval)))
-            yval += bank_y_step
-        for pin in pins:
-            print(pin)
-        print(make_rect(
-            -400, bank_y_start - bank_y_step,
-            0, bank_y_end + bank_y_step,
-            unit_number
-        ))
-
-        unit_number += 1
-
 
 def main():
     # Load the CSV data for the part
