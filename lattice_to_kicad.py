@@ -6,6 +6,95 @@ import functools
 
 from collections import defaultdict
 
+class LatticePad:
+
+    def __init__(self, csv_header, row):
+        # First few columns are common to all parts
+        self.pad_number = int(row[0])
+        self.pin_ball = row[1]
+        self.bank = row[2]
+        self.dual_function = row[3] == 'TRUE'
+        self.differential = row[4]
+        self.high_speed = row[5] == 'TRUE'
+        self.dqs = row[6]
+
+        # After that, we have actuall ballout mapping per-part
+        self.part_mapping = {}
+        for col in range(7, len(row)):
+            part_name = csv_header[col]
+            self.part_mapping[part_name] = row[col]
+
+    def is_nc(self):
+        return self.pin_ball == 'NC'
+
+    def __str__(self):
+        return (
+            "LatticePad: \n"
+            "   pad_number(%s)\n"
+            "   pin_ball(%s)\n"
+            "   bank(%s)\n"
+            "   dual_function(%s)\n"
+            "   differential(%s)\n"
+            "   high_speed(%s)\n"
+            "   dqs(%s)\n"
+            "   parts(%s)\n"
+        ) % (
+            self.pad_number,
+            self.pin_ball,
+            self.bank,
+            self.dual_function,
+            self.differential,
+            self.high_speed,
+            self.dqs,
+            ",".join(self.part_mapping.keys())
+        )
+
+
+class LatticeCSV:
+    def __init__(self, filename):
+        self._pads = {}
+
+        # Load raw CSV data
+        with open(filename) as csvfile:
+            reader = csv.reader(csvfile)
+            self._raw_rows = [row for row in reader]
+
+        # Preprocess data to get packages, etc
+        self._preprocess_rows()
+
+    def _preprocess_rows(self):
+        found_header = False
+        next_row_is_header = False
+        for row in self._raw_rows:
+            # All the lattice CSVs seem to use a fully blank line to delimit
+            # the end of comments, so scan til we see that
+            if not found_header:
+                if next_row_is_header:
+                    _header = row
+                    found_header = True
+                if all([v == '' for v in row]):
+                    next_row_is_header = True
+            else:
+                # We know the header, parse this row as data.
+                lattice_pad = LatticePad(_header, row)
+                self._pads[lattice_pad.pad_number] = lattice_pad
+
+    def get_signals_for_part(self, part):
+        ret = []
+        for pad in self._pads.values():
+            if part in pad.part_mapping.keys():
+                if pad.part_mapping[part] != '-':
+                    ret.append(pad)
+        return ret
+
+    def get_part_names(self):
+        names = set()
+        for pad in self._pads.values():
+            for part in pad.part_mapping.keys():
+                names.add(part)
+        return names
+
+
 def csv_to_rows(filename):
     with open(filename) as csvfile:
         reader = csv.reader(csvfile)
@@ -201,5 +290,12 @@ def main():
     print("ENDDRAW")
     print("ENDDEF")
 
+def test_main():
+    csv_data = LatticeCSV(sys.argv[1])
+    signals = csv_data.get_signals_for_part("CABGA256")
+    for s in signals:
+        print(s)
+
+
 if __name__ == '__main__':
-    main()
+    test_main()
